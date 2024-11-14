@@ -102,14 +102,10 @@ export async function getCommitActions(
   targetPath: string,
   commitAction: CommitAction = 'auto',
 ): Promise<Types.CommitAction[]> {
-  if (sourcePath) {
-    fileRoot = resolveSafeChildPath(workspacePath, sourcePath);
-  } else if (targetPath) {
-    // for backward compatibility
-    fileRoot = resolveSafeChildPath(workspacePath, targetPath);
-  } else {
-    fileRoot = workspacePath;
-  }
+  const fileRoot =
+    sourcePath || targetPath
+      ? resolveSafeChildPath(workspacePath, sourcePath || targetPath)
+      : workspacePath;
 
   let remoteFiles: Types.RepositoryTreeSchema[] = [];
   if ((commitAction ?? 'auto') === 'auto') {
@@ -123,33 +119,33 @@ export async function getCommitActions(
     gitignore: true,
   });
 
-  return commitAction === 'skip'
-    ? []
-    : (
-        (
-          await Promise.all(
-            fileContents.map(async file => {
-              const action = await getFileAction(
-                { file, targetPath },
-                { repoID, branch: targetBranch! },
-                gitlab,
-                remoteFiles,
-                commitAction,
-              );
-              return { file, action };
-            }),
-          )
-        ).filter(o => o.action !== 'skip') as {
-          file: SerializedFile;
-          action: Types.CommitAction['action'];
-        }[]
-      ).map(({ file, action }) => ({
-        action,
-        filePath: targetPath
-          ? path.posix.join(targetPath, file.path)
-          : file.path,
-        encoding: 'base64',
-        content: file.content.toString('base64'),
-        execute_filemode: file.executable,
-      }));
+  if (commitAction == 'skip') {
+    return [];
+  }
+
+  const editedFiles = (
+    await Promise.all(
+      fileContents.map(async file => {
+        const action = await getFileAction(
+          { file, targetPath },
+          { repoID, branch: targetBranch! },
+          gitlab,
+          remoteFiles,
+          commitAction,
+        );
+        return { file, action };
+      }),
+    )
+  ).filter(o => o.action !== 'skip') as {
+    file: SerializedFile;
+    action: Types.CommitAction['action'];
+  }[];
+
+  return editedFiles.map(({ file, action }) => ({
+    action,
+    filePath: targetPath ? path.posix.join(targetPath, file.path) : file.path,
+    encoding: 'base64',
+    content: file.content.toString('base64'),
+    execute_filemode: file.executable,
+  }));
 }
