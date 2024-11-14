@@ -21,14 +21,13 @@ import {
   serializeDirectoryContents,
 } from '@backstage/plugin-scaffolder-node';
 import { Gitlab, Types } from '@gitbeaker/core';
-import path from 'path';
 import { ScmIntegrationRegistry } from '@backstage/integration';
 import { InputError } from '@backstage/errors';
 import {
   LoggerService,
   resolveSafeChildPath,
 } from '@backstage/backend-plugin-api';
-import { createGitlabApi } from './helpers';
+import { createGitlabApi, getCommitActions } from './helpers';
 import { examples } from './gitlabMergeRequest.examples';
 import { createHash } from 'crypto';
 
@@ -262,51 +261,13 @@ which uses additional API calls in order to detect whether to 'create', 'update'
         targetBranch = defaultBranch!;
       }
 
-      let remoteFiles: Types.RepositoryTreeSchema[] = [];
-      if ((ctx.input.commitAction ?? 'auto') === 'auto') {
-        try {
-          remoteFiles = await api.Repositories.tree(repoID, {
-            ref: targetBranch,
-            recursive: true,
-            path: targetPath ?? undefined,
-          });
-        } catch (e) {
-          ctx.logger.warn(
-            `Could not retrieve the list of files for ${repoID} (branch: ${targetBranch}) : ${e}`,
-          );
-        }
-      }
-      const actions: Types.CommitAction[] =
-        ctx.input.commitAction === 'skip'
-          ? []
-          : (
-              (
-                await Promise.all(
-                  fileContents.map(async file => {
-                    const action = await getFileAction(
-                      { file, targetPath },
-                      { repoID, branch: targetBranch! },
-                      api,
-                      ctx.logger,
-                      remoteFiles,
-                      ctx.input.commitAction,
-                    );
-                    return { file, action };
-                  }),
-                )
-              ).filter(o => o.action !== 'skip') as {
-                file: SerializedFile;
-                action: Types.CommitAction['action'];
-              }[]
-            ).map(({ file, action }) => ({
-              action,
-              filePath: targetPath
-                ? path.posix.join(targetPath, file.path)
-                : file.path,
-              encoding: 'base64',
-              content: file.content.toString('base64'),
-              execute_filemode: file.executable,
-            }));
+      const actions = await getCommitActions(
+        api,
+        repoID,
+        targetBranch,
+        targetPath,
+        fileRoot,
+      );
 
       let createBranch: boolean;
       if (actions.length) {

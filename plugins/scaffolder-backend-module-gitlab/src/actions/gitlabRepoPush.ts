@@ -24,7 +24,7 @@ import path from 'path';
 import { ScmIntegrationRegistry } from '@backstage/integration';
 import { InputError } from '@backstage/errors';
 import { resolveSafeChildPath } from '@backstage/backend-plugin-api';
-import { createGitlabApi } from './helpers';
+import { createGitlabApi, getCommitActions } from './helpers';
 import { examples } from './gitlabRepoPush.examples';
 
 /**
@@ -130,26 +130,15 @@ export const createGitlabRepoPushAction = (options: {
         repoUrl,
       });
 
-      let fileRoot: string;
-      if (sourcePath) {
-        fileRoot = resolveSafeChildPath(ctx.workspacePath, sourcePath);
-      } else {
-        fileRoot = ctx.workspacePath;
-      }
-
-      const fileContents = await serializeDirectoryContents(fileRoot, {
-        gitignore: true,
-      });
-
-      const actions: Types.CommitAction[] = fileContents.map(file => ({
-        action: commitAction ?? 'create',
-        filePath: targetPath
-          ? path.posix.join(targetPath, file.path)
-          : file.path,
-        encoding: 'base64',
-        content: file.content.toString('base64'),
-        execute_filemode: file.executable,
-      }));
+      const actions = await getCommitActions(
+        api,
+        repoID,
+        ctx.workspacePath,
+        sourcePath,
+        branchName,
+        targetPath,
+        commitAction,
+      );
 
       let branchExists = false;
       try {
